@@ -1,0 +1,11 @@
+venv/
+.env
+__pycache__/
+*.pyc
+*.pth
+data/
+checkpoints/
+models/
+result_video/
+third_party/
+voices/
