@@ -1,4 +1,4 @@
-\# Audio Voice Samples
+# Audio Voice Samples
 
 Здесь хранятся экземпляры голосов, используемые для создания голосовых клонов персонажей.
 
@@ -21,7 +21,7 @@ src/voice\_clone/clone\_manager.py
 
 
 
-\## Формат:
+## Формат:
 
 talking-head-assistant/data/audio/<person\_name>/<any\_name>.(wav|ogg)
 
