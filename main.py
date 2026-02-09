@@ -1,5 +1,6 @@
 import asyncio
 import queue
+from queue import Queue, Empty
 import threading
 import sounddevice as sd
 import numpy as np
@@ -9,8 +10,9 @@ from pathlib import Path
 import cv2
 from datetime import datetime
 import torch
-import webrtcvad  # Для VAD
+import webrtcvad
 from collections import deque
+import keyboard
 
 from src.asr.whisper_asr import WhisperTranscriber
 from src.voice_clone.clone_manager import VoiceCloneManager
@@ -23,11 +25,12 @@ VAD_AGGRESSIVENESS = 2  # 0-3, где 3 самый агрессивный
 SILENCE_TIMEOUT = 1.5  # секунд тишины для завершения фразы
 MIN_SPEECH_DURATION = 0.5  # минимальная длительность речи для обработки
 
-# Глобальные переменные
-audio_buffer = deque(maxlen=int(SAMPLE_RATE * 10))  # буфер на 10 секунд
-is_recording = False
-current_phrase = []
-vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+USE_PUSH_TO_TALK = False
+PUSH_TO_TALK_KEY = 'space' # клавиша активации
+push_to_talk_active = threading.Event()
+
+audio_data_queue = Queue()          # thread-safe очередь из stdlib
+stop_event = threading.Event()
 
 # Инициализация TTS модели
 tts_model = Qwen3TTSModel.from_pretrained(
@@ -37,12 +40,21 @@ tts_model = Qwen3TTSModel.from_pretrained(
     attn_implementation="flash_attention_2",
 )
 
+"""Основной цикл обработки диалога"""
+transcriber = WhisperTranscriber()
+manager = VoiceCloneManager(model=tts_model)
+person_name = "Julia"
+
+print("🎭 Инициализация системы...")
+prompt_items = manager.load_or_create_clone(person_name)
+print("✅ Система готова к работе")
+
 class VoiceActivityDetector:
     def __init__(self, sample_rate=16000):
         self.sample_rate = sample_rate
-        self.vad = webrtcvad.Vad(2)
+        self.vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
         self.chunk_size = int(sample_rate * 0.03)  # 30ms
-        self.silence_frames_threshold = int(1.5 / 0.03)  # 1.5 секунд тишины
+        self.silence_frames_threshold = int(SILENCE_TIMEOUT / 0.03)  # 1.5 секунд тишины
         self.silence_counter = 0
         self.is_speaking = False
         self.audio_buffer = []
@@ -50,9 +62,19 @@ class VoiceActivityDetector:
     def process_chunk(self, audio_chunk):
         """Обработка аудио-чанка через VAD"""
         try:
-            # Конвертируем в 16-bit PCM
-            audio_int16 = (audio_chunk * 32767).astype(np.int16)
-            audio_bytes = audio_int16.tobytes()
+            # audio_chunk уже должен быть int16
+            # Проверяем размер чанка
+            if len(audio_chunk) != self.chunk_size:
+                # Дополняем или обрезаем до нужного размера
+                if len(audio_chunk) < self.chunk_size:
+                    # Дополняем нулями
+                    padding = np.zeros(self.chunk_size - len(audio_chunk), dtype=np.int16)
+                    audio_chunk = np.concatenate([audio_chunk, padding])
+                else:
+                    audio_chunk = audio_chunk[:self.chunk_size]
+            
+            # Конвертируем в bytes для VAD
+            audio_bytes = audio_chunk.tobytes()
             
             # Проверяем, содержит ли чанк речь
             is_speech = self.vad.is_speech(audio_bytes, self.sample_rate)
@@ -70,8 +92,9 @@ class VoiceActivityDetector:
                         print("⏸️  Речь закончилась, обрабатываю...")
                         return True  # Сигнал о завершении фразы
             
-            # Сохраняем аудио в буфер
-            self.audio_buffer.extend(audio_chunk)
+            # Сохраняем аудио в буфер (конвертируем в float32 для дальнейшей обработки)
+            audio_float = audio_chunk.astype(np.float32) / 32768.0
+            self.audio_buffer.extend(audio_float)
             return False
             
         except Exception as e:
@@ -80,16 +103,19 @@ class VoiceActivityDetector:
     
     def get_audio(self):
         """Получить накопленное аудио и очистить буфер"""
+        if len(self.audio_buffer) == 0:
+            return np.array([], dtype=np.float32)
+        
         audio = np.array(self.audio_buffer, dtype=np.float32)
         self.audio_buffer = []
         self.silence_counter = 0
+        self.is_speaking = False
         return audio
 
 async def record_audio_with_vad():
     """Асинхронная запись аудио с VAD"""
     vad_detector = VoiceActivityDetector()
-    audio_queue = asyncio.Queue()
-    stop_event = asyncio.Event()
+    stop_recording = threading.Event()
     
     def audio_callback(indata, frames, time, status):
         """Callback для записи аудио"""
@@ -101,28 +127,37 @@ async def record_audio_with_vad():
         audio_chunk = np.frombuffer(indata, dtype=np.int16)
         
         # Обрабатываем через VAD
-        phrase_completed = vad_detector.process_chunk(audio_chunk)
+        phrase_completed = False
+
+        if USE_PUSH_TO_TALK:
+            # запись идёт только если нажата кнопка
+            if push_to_talk_active.is_set():
         
-        # Добавляем в очередь для дальнейшей обработки
-        try:
-            # Создаем задачу для добавления в очередь
-            asyncio.run_coroutine_threadsafe(
-                audio_queue.put((audio_chunk.copy(), phrase_completed)), 
-                asyncio.get_event_loop()
-            )
-        except RuntimeError:
-            # Если цикл событий не запущен, запускаем новый поток для добавления
-            pass
+                if not vad_detector.is_speaking:
+                    vad_detector.is_speaking = True
+                    print("🎤 Push-to-talk запись началась")
         
-        # Если фраза завершена, сигнализируем об этом
+                # вручную копим аудио
+                audio_float = audio_chunk.astype(np.float32) / 32768.0
+                vad_detector.audio_buffer.extend(audio_float)
+        
+            else:
+                # кнопка отпущена → завершаем фразу
+                if vad_detector.is_speaking:
+                    vad_detector.is_speaking = False
+                    phrase_completed = True
+                    print("⏸️ Push-to-talk запись завершена")
+        
+        else:
+            # стандартный VAD режим
+            phrase_completed = vad_detector.process_chunk(audio_chunk)
+        
+        # Если фраза завершена, сигнализируем об этом через очередь
         if phrase_completed:
             try:
-                asyncio.run_coroutine_threadsafe(
-                    audio_queue.put(("PHRASE_END", None)), 
-                    asyncio.get_event_loop()
-                )
-            except RuntimeError:
-                pass
+                audio_data_queue.put("PHRASE_END")
+            except Exception as e:
+                print(f"Ошибка при добавлении в очередь: {e}")
     
     # Запускаем поток записи
     def run_recording():
@@ -133,36 +168,39 @@ async def record_audio_with_vad():
             channels=1,
             callback=audio_callback
         ):
-            while not stop_event.is_set():
-                sd.sleep(100)
-    
-    # Запускаем запись в отдельном потоке
-    recording_thread = threading.Thread(target=run_recording)
+            while not stop_recording.is_set():
+                sd.sleep(200)
+
+    recording_thread = threading.Thread(target=run_recording, daemon=True)
     recording_thread.start()
-    
+
     try:
-        while True:
-            # Ждем данные из очереди
+        while not stop_event.is_set():
             try:
-                data = await asyncio.wait_for(audio_queue.get(), timeout=0.1)
+                # Используем asyncio.sleep для неблокирующего ожидания
+                await asyncio.sleep(0.1)
                 
-                if data == ("PHRASE_END", None):
-                    # Получаем собранное аудио
-                    audio_data = vad_detector.get_audio()
-                    if len(audio_data) > SAMPLE_RATE * MIN_SPEECH_DURATION:
-                        yield audio_data
-                    else:
-                        print("⚠️  Слишком короткая фраза, игнорирую")
-                        
-            except asyncio.TimeoutError:
-                continue
+                # Проверяем, есть ли сообщение о завершении фразы
+                try:
+                    item = audio_data_queue.get_nowait()
+                    if item == "PHRASE_END":
+                        audio_float = vad_detector.get_audio()
+                        if len(audio_float) >= SAMPLE_RATE * MIN_SPEECH_DURATION:
+                            yield audio_float
+                        else:
+                            print("Слишком короткий фрагмент, игнорируем")
+                except Empty:
+                    continue
+                    
             except Exception as e:
-                print(f"Ошибка в очереди: {e}")
+                print("Ошибка в обработке очереди:", e)
                 break
                 
     finally:
-        stop_event.set()
-        recording_thread.join()
+        stop_recording.set()
+        if recording_thread.is_alive():
+            recording_thread.join(timeout=1)
+        print("Запись аудио остановлена")
 
 async def transcribe_audio_stream(transcriber):
     """Потоковое распознавание речи"""
@@ -184,14 +222,7 @@ async def transcribe_audio_stream(transcriber):
             print(f"❌ Ошибка распознавания: {e}")
 
 async def process_conversation():
-    """Основной цикл обработки диалога"""
-    transcriber = WhisperTranscriber()
-    manager = VoiceCloneManager(model=tts_model)
-    person_name = "Julia"
-    
-    print("🎭 Инициализация системы...")
-    prompt_items = manager.load_or_create_clone(person_name)
-    print("✅ Система готова к работе")
+
     
     # Основной цикл диалога
     async for recognized_text in transcribe_audio_stream(transcriber):
@@ -249,7 +280,8 @@ async def run_wav2lip(audio_path, person_name):
                 wav2lip_cmd,
                 cwd=WAV2LIP_DIR,
                 capture_output=True,
-                text=True
+                text=True,
+                encoding='utf-8'
             )
             if result.returncode == 0:
                 print("✅ Синхронизация завершена")
@@ -263,8 +295,12 @@ async def run_wav2lip(audio_path, person_name):
     
     # Запускаем в пуле потоков
     loop = asyncio.get_event_loop()
-    video_path = await loop.run_in_executor(None, run_command)
-    return video_path
+    try:
+        video_path = await loop.run_in_executor(None, run_command)
+        return video_path
+    except Exception as e:
+        print(f"❌ Ошибка при выполнении Wav2Lip: {e}")
+        return None
 
 async def play_video_with_audio(audio_path):
     """Воспроизведение видео с аудио"""
@@ -321,6 +357,26 @@ async def play_video_with_audio(audio_path):
     cap.release()
     cv2.destroyAllWindows()
 
+def start_keyboard_listener():
+    def on_press(event):
+        if event.name == PUSH_TO_TALK_KEY:
+            push_to_talk_active.set()
+
+    def on_release(event):
+        if event.name == PUSH_TO_TALK_KEY:
+            push_to_talk_active.clear()
+
+    keyboard.on_press(on_press)
+    keyboard.on_release(on_release)
+
+    keyboard.add_hotkey('f8', toggle_record_mode)
+
+def toggle_record_mode():
+    global USE_PUSH_TO_TALK
+    USE_PUSH_TO_TALK = not USE_PUSH_TO_TALK
+    print("🎛 Режим записи:", 
+          "Push-to-talk" if USE_PUSH_TO_TALK else "VAD")
+
 async def main():
     """Основная функция"""
     print("=" * 50)
@@ -331,12 +387,19 @@ async def main():
     print("  • Нажмите Ctrl+C для выхода")
     print()
     
+    # ⌨️ запускаем обработку клавиатуры
+    start_keyboard_listener()
+    
     try:
         await process_conversation()
     except KeyboardInterrupt:
         print("\n\n👋 Завершение работы...")
+        stop_event.set()
     except Exception as e:
         print(f"❌ Критическая ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+        stop_event.set()
 
 if __name__ == "__main__":
     # Проверка зависимостей
@@ -348,4 +411,9 @@ if __name__ == "__main__":
         exit(1)
     
     # Запуск асинхронного приложения
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nПрограмма завершена пользователем")
+    except Exception as e:
+        print(f"Ошибка при запуске: {e}")

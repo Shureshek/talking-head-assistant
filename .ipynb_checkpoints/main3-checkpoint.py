@@ -40,6 +40,15 @@ tts_model = Qwen3TTSModel.from_pretrained(
     attn_implementation="flash_attention_2",
 )
 
+"""Основной цикл обработки диалога"""
+transcriber = WhisperTranscriber()
+manager = VoiceCloneManager(model=tts_model)
+person_name = "Julia"
+
+print("🎭 Инициализация системы...")
+prompt_items = manager.load_or_create_clone(person_name)
+print("✅ Система готова к работе")
+
 class VoiceActivityDetector:
     def __init__(self, sample_rate=16000):
         self.sample_rate = sample_rate
@@ -213,14 +222,7 @@ async def transcribe_audio_stream(transcriber):
             print(f"❌ Ошибка распознавания: {e}")
 
 async def process_conversation():
-    """Основной цикл обработки диалога"""
-    transcriber = WhisperTranscriber()
-    manager = VoiceCloneManager(model=tts_model)
-    person_name = "Julia"
-    
-    print("🎭 Инициализация системы...")
-    prompt_items = manager.load_or_create_clone(person_name)
-    print("✅ Система готова к работе")
+
     
     # Основной цикл диалога
     async for recognized_text in transcribe_audio_stream(transcriber):

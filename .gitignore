@@ -3,9 +3,33 @@ venv/
 __pycache__/
 *.pyc
 *.pth
-data/
-checkpoints/
-models/
-result_video/
-third_party/
-voices/
+
+# data
+data/*
+!data/**/
+!data/**/README.md
+
+# checkpoints
+checkpoints/*
+!checkpoints/README.md
+
+# models
+models/*
+!models/README.md
+
+# result_video
+result_video/*
+!result_video/README.md
+
+# third_party
+third_party/*
+!third_party/README.md
+
+# voices
+voices/*
+!voices/README.md
+
+# tests
+tests/*
+!tests/README.md
+
