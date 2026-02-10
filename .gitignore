@@ -6,8 +6,12 @@ __pycache__/
 
 # data
 data/*
-!data/**/
-!data/**/README.md
+!data/README.md
+
+# generated_speech_audio
+generated_speech_audio/*
+!generated_speech_audio/**/
+!generated_speech_audio
 
 # checkpoints
 checkpoints/*
