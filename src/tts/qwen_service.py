@@ -9,7 +9,7 @@ class QwenTTSService(BaseTTSService):
         self.model_id = model_id
         self.device = device
         self.model = None
-        self._sample_rate = 16000 # Обычно 16k для Whisper-based или других, уточните у модели
+        self._sample_rate = 24000
 
     @property
     def sample_rate(self) -> int:
@@ -24,23 +24,30 @@ class QwenTTSService(BaseTTSService):
             attn_implementation="flash_attention_2",
         )
 
-    def get_speaker_embedding(self, audio_path: str):
+    def get_speaker_embedding(self, audio_path: str, ref_text: str = None):
         print(f"🧬 Создание промпта Qwen из {audio_path}...")
         # Логика создания клона для Qwen
+        use_text_mode = ref_text is not None and len(ref_text) > 0
+
+        if use_text_mode:
+            print(f"📝 Использую текст референса: {ref_text[:50]}...")
+        else:
+            print("⚠️ Текст референса не передан, использую x-vector (только тембр).")
+
         prompt_items = self.model.create_voice_clone_prompt(
             ref_audio=str(audio_path),
-            # Здесь можно добавить логику транскрипции референса, если нужно
-            # ref_text="...",
-            x_vector_only_mode=True,
+            ref_text=ref_text if use_text_mode else None,
+            x_vector_only_mode=not use_text_mode,
         )
         return prompt_items
 
     def generate_stream(self, text: str, speaker_embedding: Any):
-        # Qwen пока не умеет стримить чанками нативно в public API, возвращаем всё сразу
         wavs, sr = self.model.generate_voice_clone(
             text=text,
             language="Russian",
             voice_clone_prompt=speaker_embedding,
         )
-        # self._sample_rate = sr # Можно обновить рейт, если он динамический
-        yield wavs[0].cpu().numpy()
+        if sr != self._sample_rate:
+            print(f"📢 Внимание: SR модели изменился на {sr}")
+            self._sample_rate = sr
+        yield wavs[0]

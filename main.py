@@ -1,4 +1,5 @@
 import asyncio
+import os
 import queue
 from queue import Queue, Empty
 import threading
@@ -21,11 +22,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
 from src.tts.xtts_service import XTTSService
 from src.tts.qwen_service import QwenTTSService
 from src.voice_clone.clone_manager import VoiceCloneManager
+from src.audio.player import AudioStreamPlayer
+
+from src.config.settings import TTS_OUTPUT_DIR
 
 
 # ==================== КОНФИГУРАЦИЯ ====================
 USE_XTTS = True            # False = Qwen
-ENABLE_LIP_SYNC = False     # Вкл/Выкл Wav2Lip (видео)
+ENABLE_LIP_SYNC = True     # Вкл/Выкл Wav2Lip (видео)
 # ======================================================
 
 SAMPLE_RATE = 16000 # Базовый рейт (будет обновлен сервисом TTS)
@@ -41,7 +45,7 @@ push_to_talk_active = threading.Event()
 audio_data_queue = Queue()
 stop_event = threading.Event()
 conversation_history = [
-    {"role": "system", "content": "Ты голосовой ассистент. Отвечай кратко и емко."}
+    {"role": "system", "content": "Ты директор web-студии Давид. При любой возможности стараешься предложить и продать сайт на обсуждаемую тематику. ОТвечай кратко и по делу."}
 ]
 MAX_HISTORY_LENGTH = 20
 
@@ -54,21 +58,27 @@ else:
 
 tts_service.load_model()
 
+global_player = AudioStreamPlayer(tts_service.sample_rate)
+
+# Инициализация Whisper
+print("🧠 Загрузка Whisper...")
+transcriber = WhisperTranscriber()
+
 # === 2. Менеджер клонирования ===
 manager = VoiceCloneManager()
-person_name = "Julia"
+person_name = "julia"
 
 try:
     # Менеджер сам проверит кэш, если нет — сгенерирует через tts_service и сохранит
-    speaker_embedding = manager.load_or_create_embedding(person_name, tts_service)
+    speaker_embedding = manager.load_or_create_embedding(person_name, tts_service, transcriber=transcriber)
     print("✅ Голос успешно загружен")
 except Exception as e:
     print(f"❌ Критическая ошибка загрузки голоса: {e}")
     exit(1)
 
-# === 3. Инициализация LLM и Whisper ===
-print("🧠 Загрузка LLM и Whisper...")
-transcriber = WhisperTranscriber()
+# === 3. Инициализация LLM ===
+print("🧠 Загрузка LLM...")
+
 model_id = "Qwen/Qwen1.5-7B-Chat"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 model = AutoModelForCausalLM.from_pretrained(
@@ -365,104 +375,163 @@ async def process_conversation():
         conversation_history.append({"role": "assistant", "content": response_text.strip()})
 
 
+    def put_audio(self, audio_chunk):
+        """Добавляет аудио в очередь воспроизведения"""
+        # Разбиваем большой чанк на блоки, понятные OutputStream, если нужно
+        # Но проще просто положить в очередь, а callback сам разберется
+        # (для простоты реализации callback выше рассчитан на то, что чанки совпадают
+        # c blocksize, но это сложно синхронизировать).
+
+        # ЛУЧШИЙ ВАРИАНТ ДЛЯ ПРОСТОТЫ (Blocking Stream в отдельном потоке):
+        pass
+
+    def stop(self):
+        self.stream.stop()
+        self.stream.close()
+
+
 async def stream_and_play(text_chunk):
     if not text_chunk: return
 
-    print(f"🎵 TTS: {text_chunk}")
-    sampling_rate = tts_service.sample_rate
+    print(f"🎵 TTS поток: {text_chunk}")
 
     full_audio_segments = []
 
     try:
-        # Генерируем аудио поток
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = TTS_OUTPUT_DIR / f"response_{person_name}_{timestamp}.wav"
+        full_audio = []
+        # Получаем генератор чанков от TTS
         stream_gen = tts_service.generate_stream(text_chunk, speaker_embedding)
 
         for audio_chunk in stream_gen:
-            # 1. Воспроизводим звук (всегда)
-            sd.play(audio_chunk, sampling_rate)
+            full_audio.append(audio_chunk)
+            # === ГЛАВНОЕ ИЗМЕНЕНИЕ ===
+            # Кидаем в очередь плеера. Это занимает 0.0001 сек.
+            # Мы НЕ ждем (sd.wait не нужен), а сразу идем генерировать следующий кусок.
+            global_player.play(audio_chunk)
+            # =========================
 
-            # 2. Если нужен липсинк — копим данные
+            # Копим для Wav2Lip (если включено)
             if ENABLE_LIP_SYNC:
                 full_audio_segments.append(audio_chunk)
 
-            sd.wait()  # Ждем окончания кусочка
+        if full_audio:
+            # Объединяем все чанки (если их несколько) в один массив
+            final_wav = np.concatenate(full_audio)
 
-        # 3. Запуск липсинка (только если включен флаг и есть аудио)
+            # Сохраняем (используем sample_rate из сервиса)
+            sf.write(str(file_path), final_wav, tts_service.sample_rate)
+            print(f"✅ Файл сохранен!")
+
+        # Логика видео (запускается параллельно пока доигрывается звук)
         if ENABLE_LIP_SYNC and full_audio_segments:
-            print("👄 Запуск генерации видео (LipSync)...")
-            complete_wav = np.concatenate(full_audio_segments)
-
-            stamp = datetime.now().strftime("%H%M%S_%f")
-            temp_wav_path = Path(f"temp_audio_{stamp}.wav")
-            sf.write(temp_wav_path, complete_wav, sampling_rate)
-
-            # Wav2Lip
-            video_path = await run_wav2lip(temp_wav_path, person_name)
+            video_path = await run_musetalk(file_path, person_name)
             if video_path:
-                await play_video_only(video_path)
+                await play_video_only(video_path, file_path)  # ← теперь два аргумента, ошибка исчезнет
 
-            # Удаляем времянку
+    except Exception as e:
+        print(f"❌ Ошибка TTS стрима: {e}")
+
+
+
+async def run_musetalk(audio_path: Path, person_name: str):
+    """
+    Финальная исправленная версия: точный поиск в подпапке v15 + задержка для ffmpeg.
+    """
+    MUSE_PYTHON = r"C:\Users\Shurik\anaconda3\envs\MuseTalk\python.exe"
+    MUSE_DIR = Path(r"E:\Coding\talking-head-assistant\third_party\MuseTalk")
+    RESULT_VIDEO_DIR = Path(r"E:\Coding\talking-head-assistant\result_video")
+    RESULT_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    result_name = f"{person_name}_musetalk_{stamp}.mp4"
+
+    print("👄 Запускаю MuseTalk inference... (первый запуск ~40–90 сек)")
+
+    # === Правильный config ===
+    import yaml
+    config = {
+        "task_0": {
+            "video_path": str(MUSE_DIR / "data" / "video" / "sun.mp4"),
+            "audio_path": str(audio_path.absolute()),
+            "result_name": result_name
+        }
+    }
+
+    temp_config = MUSE_DIR / f"temp_config_{stamp}.yaml"
+    with open(temp_config, "w", encoding="utf-8") as f:
+        yaml.dump(config, f)
+
+    muse_cmd = [
+        MUSE_PYTHON, "-m", "scripts.inference",
+        "--inference_config", str(temp_config),
+        "--result_dir", str(RESULT_VIDEO_DIR),
+        "--unet_model_path", "models/musetalkV15/unet.pth",
+        "--unet_config", "models/musetalkV15/musetalk.json",
+        "--version", "v15",
+        "--bbox_shift", "0",
+        "--fps", "25"
+    ]
+
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    def run_proc():
+        try:
+            result = subprocess.run(
+                muse_cmd,
+                cwd=str(MUSE_DIR),
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                env=env,
+                timeout=180
+            )
+
+            print("MuseTalk stdout:", result.stdout[-1000:])
+
+            if result.returncode == 0:
+                print("✅ MuseTalk успешно завершил работу")
+
+                # === ТОЧНЫЙ ПОИСК (именно так сохраняет MuseTalk) ===
+                video_path = RESULT_VIDEO_DIR / "v15" / result_name
+
+                # Проверяем с расширением и без
+                for ext in ["", ".mp4"]:
+                    candidate = video_path.with_suffix(ext)
+                    if candidate.exists():
+                        print(f"✅ Найдено видео: {candidate}")
+                        return candidate
+
+                # Если не нашли — fallback
+                print("⚠️ Точный путь не найден, ищем по шаблону...")
+                found = list((RESULT_VIDEO_DIR / "v15").rglob(f"*{result_name}*"))
+                if found:
+                    video = max(found, key=lambda p: p.stat().st_mtime)
+                    print(f"✅ Найдено по шаблону: {video}")
+                    return video
+
+                return video_path.with_suffix(".mp4")  # последний шанс
+
+            else:
+                print("❌ MuseTalk stderr:", result.stderr)
+                return None
+        except subprocess.TimeoutExpired:
+            print("❌ MuseTalk превысил время ожидания")
+            return None
+        finally:
             try:
-                temp_wav_path.unlink()
+                if temp_config.exists():
+                    temp_config.unlink()
             except:
                 pass
 
-    except Exception as e:
-        print(f"❌ Ошибка TTS/Play: {e}")
-
-
-
-async def run_wav2lip(audio_path, person_name):
-    """Запуск Wav2Lip в отдельном процессе"""
-    WAV2LIP_PYTHON = r"C:\Users\Shurik\anaconda3\envs\wav2lip\python.exe"
-    WAV2LIP_DIR = Path(r"E:\Coding\talking-head-assistant\third_party\Wav2Lip")
-    RESULT_VIDEO_DIR = Path(r"E:\Coding\talking-head-assistant\result_video")
-
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    result_video_path = RESULT_VIDEO_DIR / f"{person_name}_{stamp}.mp4"
-
-    print("👄 Запускаю синхронизацию губ...")
-
-    # Запускаем в отдельном потоке, чтобы не блокировать asyncio
-    def run_command():
-        wav2lip_cmd = [
-            WAV2LIP_PYTHON,
-            "inference.py",
-            "--checkpoint_path", "checkpoints/wav2lip_gan.pth",
-            "--face", "face_video.mp4",
-            "--audio", str(audio_path),
-            "--outfile", str(result_video_path),
-            "--nosmooth"
-        ]
-
-        try:
-            result = subprocess.run(
-                wav2lip_cmd,
-                cwd=WAV2LIP_DIR,
-                capture_output=True,
-                text=True,
-                encoding='utf-8'
-            )
-            if result.returncode == 0:
-                print("✅ Синхронизация завершена")
-                return result_video_path
-            else:
-                print(f"❌ Ошибка Wav2Lip: {result.stderr}")
-                return None
-        except Exception as e:
-            print(f"❌ Ошибка запуска Wav2Lip: {e}")
-            return None
-
-    # Запускаем в пуле потоков
     loop = asyncio.get_event_loop()
-    try:
-        video_path = await loop.run_in_executor(None, run_command)
-        return video_path
-    except Exception as e:
-        print(f"❌ Ошибка при выполнении Wav2Lip: {e}")
-        return None
+    video_path = await loop.run_in_executor(None, run_proc)
+    return video_path
 
-async def play_video_only(video_path):
+async def play_video_only(video_path: Path, original_audio_path: Path = None):
     """Воспроизведение видео с аудио"""
     if not video_path.exists():
         print("❌ Видеофайл не найден")
@@ -470,10 +539,16 @@ async def play_video_only(video_path):
 
     print(f"🎬 Воспроизведение: {video_path.name}")
 
+    # Какой wav проигрывать
+    if original_audio_path and original_audio_path.exists():
+        wav_path = original_audio_path
+    else:
+        wav_path = video_path.with_suffix(".wav")
+
     # Функция для воспроизведения аудио
     def play_audio():
         try:
-            data, sr = sf.read(audio_path)
+            data, sr = sf.read(str(wav_path))
             sd.play(data, sr)
             sd.wait()
         except Exception as e:
@@ -572,5 +647,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nПрограмма завершена пользователем")
+        stop_event.set()
+        global_player.stop()
     except Exception as e:
         print(f"Ошибка при запуске: {e}")

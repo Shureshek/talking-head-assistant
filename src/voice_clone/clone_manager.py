@@ -3,16 +3,12 @@ from pathlib import Path
 from src.config.settings import DATA_AUDIO_DIR, SUPPORTED_AUDIO_EXT, VOICE_CLONE_DIR, DEFAULT_PERSON
 
 
-# Импорт Whisper нужен, только если вы планируете транскрибировать референс (для Qwen иногда полезно, но не обязательно)
-# from src.asr.whisper_asr import WhisperTranscriber 
-
 class VoiceCloneManager:
     def __init__(self):
         # Создаем папку для клонов, если нет
         VOICE_CLONE_DIR.mkdir(parents=True, exist_ok=True)
-        # self.transcriber = WhisperTranscriber() # Если нужна транскрипция референса
 
-    def load_or_create_embedding(self, person_name: str, tts_service) -> any:
+    def load_or_create_embedding(self, person_name: str, tts_service, transcriber=None) -> any:
         """
         Универсальный метод:
         1. Проверяет, есть ли сохраненный файл клона для текущей модели.
@@ -25,6 +21,7 @@ class VoiceCloneManager:
         model_tag = tts_service.__class__.__name__
         clone_filename = f"{person_name}_{model_tag}.pkl"
         clone_path = VOICE_CLONE_DIR / clone_filename
+        self.transcriber = transcriber
 
         # 2. Попытка загрузки из кэша
         if clone_path.exists():
@@ -42,8 +39,21 @@ class VoiceCloneManager:
         audio_path = self._find_person_audio(person_name)
         print(f"🎙 Используем референс: {audio_path.name}")
 
+        # ТРАНСКРИБАЦИЯ WHISPER
+        ref_text = None
+        # Проверяем, есть ли транскрайбер (он инициализируется в __init__)
+        if hasattr(self, 'transcriber') and self.transcriber:
+            print("✍️ Транскрибирую референс для улучшения качества клона...")
+            try:
+                # transcribe возвращает (text, info)
+                text, _ = self.transcriber.transcribe(str(audio_path))
+                ref_text = text.strip()
+                print(f"📜 Распознанный текст: \"{ref_text}\"")
+            except Exception as e:
+                print(f"⚠️ Ошибка транскрибации референса: {e}")
+
         # Просим сервис создать эмбеддинг (Service сам знает, как это делать: latents или prompt)
-        embedding = tts_service.get_speaker_embedding(audio_path)
+        embedding = tts_service.get_speaker_embedding(audio_path, ref_text)
 
         # 4. Сохраняем на диск
         try:
