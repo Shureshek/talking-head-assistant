@@ -12,3 +12,5 @@ TTS_OUTPUT_DIR = Path("generated_speech_audio")
 DEFAULT_PERSON = "julia"
 
 SUPPORTED_AUDIO_EXT = [".wav", ".ogg", ".mp3"]
+
+AVATAR_NAME = "basic_avatar"

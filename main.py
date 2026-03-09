@@ -24,7 +24,7 @@ from src.tts.qwen_service import QwenTTSService
 from src.voice_clone.clone_manager import VoiceCloneManager
 from src.audio.player import AudioStreamPlayer
 
-from src.config.settings import TTS_OUTPUT_DIR
+from src.config.settings import TTS_OUTPUT_DIR, AVATAR_NAME
 
 
 # ==================== КОНФИГУРАЦИЯ ====================
@@ -434,44 +434,64 @@ async def stream_and_play(text_chunk):
         print(f"❌ Ошибка TTS стрима: {e}")
 
 
-
 async def run_musetalk(audio_path: Path, person_name: str):
     """
-    Финальная исправленная версия: точный поиск в подпапке v15 + задержка для ffmpeg.
+    Интеграция с realtime_inference.py с динамической генерацией конфига.
+    Оригинальный realtime.yaml в папке MuseTalk не используется.
     """
+    import yaml
+    import os
+    import subprocess
+    import asyncio
+    import shutil
+    from datetime import datetime
+
+    # === Пути ===
+    # Отредактируйте пути под ваше виртуальное окружение, если нужно
     MUSE_PYTHON = r"C:\Users\Shurik\anaconda3\envs\MuseTalk\python.exe"
     MUSE_DIR = Path(r"E:\Coding\talking-head-assistant\third_party\MuseTalk")
     RESULT_VIDEO_DIR = Path(r"E:\Coding\talking-head-assistant\result_video")
     RESULT_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
+    # === Настройки имен ===
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    result_name = f"{person_name}_musetalk_{stamp}.mp4"
+    result_name_key = f"{person_name}_musetalk_{stamp}"
+    final_video_name = f"{result_name_key}.mp4"
+    avatar_id = AVATAR_NAME  # ID, под которым вы создали кэш
 
-    print("👄 Запускаю MuseTalk inference... (первый запуск ~40–90 сек)")
+    print(f"⚡ Запускаю MuseTalk Real-Time для {avatar_id}...")
 
-    # === Правильный config ===
-    import yaml
-    config = {
-        "task_0": {
-            "video_path": str(MUSE_DIR / "data" / "video" / "sun.mp4"),
-            "audio_path": str(audio_path.absolute()),
-            "result_name": result_name
+    # === Динамическая генерация YAML-конфига ===
+    # Мы создаем конфиг прямо в памяти, не трогая файлы библиотеки
+    config_data = {
+        avatar_id: {
+            "preparation": False,  # Боевой режим
+            # ВАЖНО: Укажите здесь тот же путь к видео, который вы использовали
+            # при создании аватара (относительно папки MuseTalk или абсолютный)
+            "video_path": "data/video/sun.mp4",
+            "bbox_shift": 0,
+            "audio_clips": {
+                result_name_key: str(audio_path.absolute())
+            }
         }
     }
 
-    temp_config = MUSE_DIR / f"temp_config_{stamp}.yaml"
-    with open(temp_config, "w", encoding="utf-8") as f:
-        yaml.dump(config, f)
+    # Сохраняем временный конфиг в корне ВАШЕГО проекта (а не в third_party)
+    # Используем текущую рабочую директорию (Path.cwd())
+    temp_config_path = Path.cwd() / f"temp_realtime_config_{stamp}.yaml"
 
+    with open(temp_config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config_data, f)
+
+    # === Формируем команду ===
     muse_cmd = [
-        MUSE_PYTHON, "-m", "scripts.inference",
-        "--inference_config", str(temp_config),
-        "--result_dir", str(RESULT_VIDEO_DIR),
+        MUSE_PYTHON, "-m", "scripts.realtime_inference",
+        "--inference_config", str(temp_config_path.absolute()),  # Скармливаем наш временный файл
         "--unet_model_path", "models/musetalkV15/unet.pth",
         "--unet_config", "models/musetalkV15/musetalk.json",
         "--version", "v15",
-        "--bbox_shift", "0",
-        "--fps", "25"
+        "--fps", "25",
+        "--batch_size", "64"
     ]
 
     env = dict(os.environ)
@@ -481,7 +501,7 @@ async def run_musetalk(audio_path: Path, person_name: str):
         try:
             result = subprocess.run(
                 muse_cmd,
-                cwd=str(MUSE_DIR),
+                cwd=str(MUSE_DIR),  # Запускаем из папки MuseTalk, чтобы он нашел модели
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
@@ -489,43 +509,34 @@ async def run_musetalk(audio_path: Path, person_name: str):
                 timeout=180
             )
 
-            print("MuseTalk stdout:", result.stdout[-1000:])
-
             if result.returncode == 0:
-                print("✅ MuseTalk успешно завершил работу")
+                print("✅ MuseTalk Real-Time успешно завершил работу")
 
-                # === ТОЧНЫЙ ПОИСК (именно так сохраняет MuseTalk) ===
-                video_path = RESULT_VIDEO_DIR / "v15" / result_name
+                # Путь, куда MuseTalk сохраняет результаты в realtime режиме
+                video_path = MUSE_DIR / "results" / "v15" / "avatars" / avatar_id / "vid_output" / final_video_name
 
-                # Проверяем с расширением и без
-                for ext in ["", ".mp4"]:
-                    candidate = video_path.with_suffix(ext)
-                    if candidate.exists():
-                        print(f"✅ Найдено видео: {candidate}")
-                        return candidate
-
-                # Если не нашли — fallback
-                print("⚠️ Точный путь не найден, ищем по шаблону...")
-                found = list((RESULT_VIDEO_DIR / "v15").rglob(f"*{result_name}*"))
-                if found:
-                    video = max(found, key=lambda p: p.stat().st_mtime)
-                    print(f"✅ Найдено по шаблону: {video}")
-                    return video
-
-                return video_path.with_suffix(".mp4")  # последний шанс
-
+                if video_path.exists():
+                    dest_path = RESULT_VIDEO_DIR / final_video_name
+                    shutil.copy2(video_path, dest_path)
+                    print(f"✅ Готовое видео скопировано в: {dest_path}")
+                    return dest_path
+                else:
+                    print(f"❌ Видео не найдено по ожидаемому пути: {video_path}")
+                    return None
             else:
-                print("❌ MuseTalk stderr:", result.stderr)
+                print("❌ MuseTalk stderr:\n", result.stderr)
                 return None
         except subprocess.TimeoutExpired:
             print("❌ MuseTalk превысил время ожидания")
             return None
         finally:
+            # === Уборка ===
+            # Удаляем временный yaml файл, чтобы не засорять папку
             try:
-                if temp_config.exists():
-                    temp_config.unlink()
-            except:
-                pass
+                if temp_config_path.exists():
+                    temp_config_path.unlink()
+            except Exception as e:
+                print(f"⚠️ Не удалось удалить временный файл {temp_config_path}: {e}")
 
     loop = asyncio.get_event_loop()
     video_path = await loop.run_in_executor(None, run_proc)
