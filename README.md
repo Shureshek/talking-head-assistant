@@ -54,7 +54,7 @@ mkdir -p volumes/result_video volumes/temp volumes/voices volumes/generated_audi
 docker compose up --build -d
 ```
 
-### 4. Запуск клиента
+### 5. Запуск клиента
 Создайте новое окружение и установите все зависимости:
 ```bash
 pip install -r requirements_client.txt
