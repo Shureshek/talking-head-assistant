@@ -28,6 +28,7 @@ volumes/audio_samples/*
 !volumes/audio_samples/salvador/
 !volumes/audio_samples/salvador/**
 
+!services/musetalk/musetalk_core/musetalk/
 
 # Build & temp
 build/
