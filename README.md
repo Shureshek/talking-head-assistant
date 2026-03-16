@@ -54,13 +54,13 @@ download_musetalk_weights.sh
 **Вариант 2 (ручное скачивание)**  
 Вы также можете скачать веса по следующим ссылкам:
 
-[musetalk](https://huggingface.co/TMElyralab/MuseTalk/tree/main)
-[sd-vae-ft-mse](https://huggingface.co/stabilityai/sd-vae-ft-mse/tree/main)
-[whisper](https://huggingface.co/openai/whisper-tiny/tree/main)
-[dwpose](https://huggingface.co/yzd-v/DWPose/tree/main)
-[syncnet](https://huggingface.co/ByteDance/LatentSync/tree/main)
-[face-parse-bisent](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view?pli=1)
-[resnet18](https://download.pytorch.org/models/resnet18-5c106cde.pth)
+[musetalk](https://huggingface.co/TMElyralab/MuseTalk/tree/main)  
+[sd-vae-ft-mse](https://huggingface.co/stabilityai/sd-vae-ft-mse/tree/main)  
+[whisper](https://huggingface.co/openai/whisper-tiny/tree/main)  
+[dwpose](https://huggingface.co/yzd-v/DWPose/tree/main)  
+[syncnet](https://huggingface.co/ByteDance/LatentSync/tree/main)  
+[face-parse-bisent](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view?pli=1)  
+[resnet18](https://download.pytorch.org/models/resnet18-5c106cde.pth)  
 
 В итоге, эти веса должны храниться в следующем виде:
 ```
