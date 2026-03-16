@@ -9,7 +9,7 @@ REM Go to project directory (directory of this .bat file)
 cd /d "%~dp0"
 
 REM Run main script
-python main.py
+python client\main.py
 
 REM Keep window open
 pause

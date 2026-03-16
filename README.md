@@ -1,6 +1,7 @@
-# Talking Head Assistant (в разработке)
+# Talking Head Assistant
 
-Локальный голосовой ассистент с автоматическим определением речи, клонированием голоса и синхронизацией губ (lip-sync) для аватара.
+Локальный голосовой ассистент с автоматическим определением речи, клонированием голоса и синхронизацией губ (lip-sync) 
+для аватара.
 
 Предполагаемый функционал проекта:
 
@@ -10,29 +11,54 @@
 - синхронизацию губ через Wav2Lip,
 - воспроизведение видео с аудио в реальном времени.
 
+## Архитектура
+
+- **client/** — клиент на Windows (микрофон, звук, клавиатура)
+- **services/core/** — ASR + LLM + TTS (XTTS / Qwen)
+- **services/musetalk/** — Lip-Sync сервис
+- **volumes/** — данные (модели, аудио, результат видео)
+
 ## Возможности
 
 - Автоопределение речи (VAD) — запись начинается и заканчивается автоматически  
 - Push-to-Talk режим (по кнопке, переключаемый)
-- Распознавание речи (Whisper)
-- Клонирование голоса (Qwen3 TTS)
-- Синхронизация губ (Wav2Lip)
+- Распознавание речи
+- Клонирование голоса
+- Синхронизация губ
 - Проигрывание видео с аудио
 
-## Текущая архитектура пайплайна
 
-Микрофон  
-↓  
-WebRTC VAD  
-↓  
-Whisper ASR  
-↓  
-Qwen3 TTS (voice clone)  
-↓  
-Wav2Lip  
-↓  
-Видео + звук  
+## "Быстрый" запуск
 
-## Заметки
-- Не реализована LLM для дачи ответов. В данный момент идет дублирование распознанного текста.
-- Wav2Lip не real-time, есть ощутимая задержка на RTX 4090
+### 1. Клонирование
+
+```bash
+git clone https://github.com/Shureshek/talking-head-assistant.git
+cd talking-head-assistant
+```
+### 2. Подготовка volumes
+```bash
+mkdir -p volumes/models/core/xtts_v2
+mkdir -p volumes/models/musetalk
+mkdir -p volumes/result_video volumes/temp volumes/voices volumes/generated_audio
+```
+### 3. Запуск
+```bash
+docker compose up --build -d
+```
+Клиент запускается на хосте через run_talking_head_assistant.bat
+
+
+## Структура проекта
+```
+talking-head-assistant/
+├── client/                 # клиент (Windows)
+├── services/
+│   ├── core/               # ASR + LLM + TTS
+│   └── musetalk/           # Lip-Sync
+├── volumes/                # данные (игнорируется)
+├── docker-compose.yml
+├── README.md
+└── .gitignore
+```
+

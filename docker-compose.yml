@@ -1,0 +1,57 @@
+services:
+  core:
+    build: ./services/core
+    container_name: talking-core
+    runtime: nvidia
+    ports:
+      - "8000:8000"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - HF_HOME=/app/models/.huggingface
+      - USE_TTS_MODEL=xtts # варианты: xtts | qwen
+    volumes:
+      - ./volumes/models/core:/app/models
+      - ./volumes/voices:/app/volumes/voices
+      - ./volumes/generated_audio:/app/volumes/generated_audio
+      - ./volumes/audio_samples:/app/volumes/audio_samples
+      - ./volumes/temp:/app/volumes/temp
+      - ./services/core/app:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    restart: unless-stopped
+    shm_size: '8g'
+
+  musetalk:
+    build: ./services/musetalk
+    container_name: talking-musetalk
+    runtime: nvidia
+    ports:
+      - "8001:8001"
+
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - TORCH_HOME=/app/musetalk_core/models/torch_cache
+    volumes:
+      - ./volumes/models/musetalk:/app/musetalk_core/models
+      - ./volumes/temp:/app/volumes/temp
+      - ./volumes/result_video:/app/volumes/result_video
+      - ./volumes/voices:/app/volumes/voices
+      - ./services/musetalk/musetalk_core:/app/musetalk_core/
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
+    restart: unless-stopped
+    shm_size: '8g'
+
+  # здесь могут быть другие сервисы позже: core, xtts и т.д.

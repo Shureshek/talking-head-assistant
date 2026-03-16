@@ -1,0 +1,7 @@
+httpx
+soundfile
+numpy
+sounddevice
+pynput
+webrtcvad
+opencv-python

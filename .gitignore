@@ -1,39 +1,44 @@
-venv/
-.env
+# Python
 __pycache__/
 *.pyc
-*.pth
+*.pyo
+*.pyd
+*.py[cod]
+*$py.class
 
-# data
-data/*
-!data/README.md
+# Environments
+.env
+.venv
+venv/
+ENV/
 
-# generated_speech_audio
-generated_speech_audio/*
-!generated_speech_audio/**/
-!generated_speech_audio
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# checkpoints
-checkpoints/*
-!checkpoints/README.md
+# Logs
+*.log
+logs/
 
-# models
-models/*
-!models/README.md
+# Data & models
+volumes/
+volumes/**/*
+!volumes/.gitkeep
+!volumes/README.md
 
-# result_video
-result_video/*
-!result_video/README.md
+# Build & temp
+build/
+dist/
+*.egg-info/
+temp/
+tmp/
 
-# third_party
-third_party/*
-!third_party/README.md
+# OS
+.DS_Store
+Thumbs.db
 
-# voices
-voices/*
-!voices/README.md
-
-# tests
-tests/*
-!tests/README.md
-
+# Docker
+.dockerignore
+Dockerfile.*.bak
