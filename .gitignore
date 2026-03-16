@@ -24,9 +24,10 @@ logs/
 
 # Data & models
 volumes/
-volumes/**/*
-!volumes/.gitkeep
+!volumes/download_musetalk_weights.sh
 !volumes/README.md
+!volumes/.gitkeep
+
 
 # Build & temp
 build/
@@ -40,5 +41,4 @@ tmp/
 Thumbs.db
 
 # Docker
-.dockerignore
 Dockerfile.*.bak

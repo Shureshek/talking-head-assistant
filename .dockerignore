@@ -1,0 +1,42 @@
+# git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+
+# python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# logs
+*.log
+
+# env
+.env
+.venv
+venv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# build
+dist
+build
+
+# models and runtime data
+volumes
+volumes/*
+!volumes/README.md
+# temporary files
+tmp
+temp
+
+*.log
+build
+dist
+*.egg-info
