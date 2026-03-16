@@ -3,7 +3,7 @@ from .xtts_service import XTTSService
 from .qwen_service import QwenTTSService
 
 def create_tts_service():
-    model_type = os.getenv("USE_TTS_MODEL", "cosyvoice").lower()
+    model_type = os.getenv("USE_TTS_MODEL", "xtts").lower()
 
     if model_type == "xtts":
         print("🎭 Выбрана модель → XTTS v2")

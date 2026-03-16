@@ -10,6 +10,7 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - HF_HOME=/app/models/.huggingface
       - USE_TTS_MODEL=xtts # варианты: xtts | qwen
+      - PERSON_NAME=salvador
     volumes:
       - ./volumes/models/core:/app/models
       - ./volumes/voices:/app/volumes/voices

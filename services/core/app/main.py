@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 import numpy as np
@@ -22,7 +23,7 @@ tts_service.load_model()
 transcriber = WhisperTranscriber()
 
 manager = VoiceCloneManager()
-person_name = "david"                       # можно вынести в .env позже
+person_name = os.getenv("PERSON_NAME", "salvador").lower()
 
 speaker_embedding = manager.load_or_create_embedding(
     person_name, tts_service, transcriber=transcriber

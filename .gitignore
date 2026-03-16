@@ -23,8 +23,10 @@ ENV/
 logs/
 
 # Data & models
-volumes/
-
+volumes/*
+volumes/audio_samples/*
+!volumes/audio_samples/salvador/
+!volumes/audio_samples/salvador/**
 
 
 # Build & temp
