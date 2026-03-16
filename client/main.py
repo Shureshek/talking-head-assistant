@@ -15,7 +15,7 @@ from threading import Thread
 import time
 
 # ==================== НОВЫЕ ИМПОРТЫ ====================
-from config import CORE_URL, PERSON_NAME, ENABLE_LIP_SYNC
+from config import CORE_URL, PERSON_NAME, ENABLE_LIP_SYNC, USE_PUSH_TO_TALK
 from player import AudioStreamPlayer, play_video_sync
 from core_client import CoreClient
 from musetalk_client import MuseTalkClient
@@ -26,7 +26,6 @@ CHUNK_SIZE = 480
 VAD_AGGRESSIVENESS = 2
 SILENCE_TIMEOUT = 1.5
 MIN_SPEECH_DURATION = 0.5
-USE_PUSH_TO_TALK = False
 PUSH_TO_TALK_KEY = pynput_keyboard.Key.space
 
 # Глобальные объекты
