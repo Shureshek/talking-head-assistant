@@ -4,9 +4,13 @@
 .vscode/
 *.pyc
 .ipynb_checkpoints
-results/
+results/*
+!results/v15/
+results/v15/*
+!results/v15/avatars
 models/
 !musetalk/models
+
 
 **/__pycache__/
 *.py[cod]
