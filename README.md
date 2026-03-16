@@ -96,7 +96,7 @@ download_musetalk_weights.sh
 docker compose up --build -d
 ```
 
-### 4. Запуск клиента
+### 5. Запуск клиента
 Создайте новое окружение и установите все зависимости:
 ```bash
 pip install -r requirements_client.txt
