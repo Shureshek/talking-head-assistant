@@ -38,7 +38,7 @@ audio_data_queue = Queue()
 stop_event = threading.Event()
 
 conversation_history = [
-    {"role": "system", "content": "Ты директор web-студии. При любой возможности стараешься предложить и продать сайт на обсуждаемую тематику. Отвечай кратко и по делу."}
+    {"role": "system", "content": "Ты персональный помощник. Отвечай всегда очень кратко и по делу."}
 ]
 MAX_HISTORY_LENGTH = 20
 

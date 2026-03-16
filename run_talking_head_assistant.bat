@@ -3,7 +3,7 @@ REM Initialize conda
 call "%USERPROFILE%\anaconda3\Scripts\activate.bat"
 
 REM Activate environment
-call conda activate talking-head-assistant-280
+call conda activate talking-head-assistant
 
 REM Go to project directory (directory of this .bat file)
 cd /d "%~dp0"
