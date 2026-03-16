@@ -24,9 +24,7 @@ logs/
 
 # Data & models
 volumes/
-!volumes/download_musetalk_weights.sh
-!volumes/README.md
-!volumes/.gitkeep
+
 
 
 # Build & temp
