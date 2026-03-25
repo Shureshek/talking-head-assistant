@@ -111,7 +111,8 @@ pip install -r requirements_client.txt
 ```
 
 ### 6. Запуск клиента
-Если вы используете conda, то клиент запускается на хосте через run_talking_head_assistant.bat
+Если вы используете conda, то клиент запускается на хосте через run_talking_head_assistant.bat.
+
 Также можно запустить клиент из корневой папки проекта, предварительно активировав окружение: 
 ```bash
 python client/main.py
