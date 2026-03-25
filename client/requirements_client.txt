@@ -3,5 +3,5 @@ soundfile
 numpy
 sounddevice
 pynput
-webrtcvad
+webrtcvad-wheels
 opencv-python
