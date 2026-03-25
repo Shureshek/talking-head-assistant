@@ -103,15 +103,19 @@ download_musetalk_weights.sh
 docker compose up --build -d
 ```
 
-### 5. Запуск клиента
+### 5. Установка клиента
 Создайте новое окружение и установите все зависимости:
 ```bash
 cd client
 pip install -r requirements_client.txt
-python main.py
 ```
-Также клиент запускается на хосте через run_talking_head_assistant.bat
 
+### 6. Запуск клиента
+Если вы используете conda, то клиент запускается на хосте через run_talking_head_assistant.bat
+Также можно запустить клиент из корневой папки проекта, предварительно активировав окружение: 
+```bash
+python client/main.py
+```
 
 ## Структура проекта
 ```
